@@ -223,7 +223,7 @@ export default function ConnectButton() {
         await fetchBalance()
         toast({
           description: "Transaction sent successfully",
-          duration: 1000
+          duration: 1500
         })
       }
     } catch (error) {
@@ -312,10 +312,26 @@ export default function ConnectButton() {
                 />
               </div>
               <div className="flex justify-end space-x-2">
-                <Button variant="outline" onClick={() => setCurrentView('main')}>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setCurrentView('main')}
+                  disabled={isLoading}
+                >
                   Back
                 </Button>
-                <Button onClick={handleSend}>Send</Button>
+                <Button 
+                  onClick={handleSend}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      
+                    </>
+                  ) : (
+                    'Send'
+                  )}
+                </Button>
               </div>
             </div>
           </>
