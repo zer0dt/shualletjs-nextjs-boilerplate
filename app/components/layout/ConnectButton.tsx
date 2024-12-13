@@ -67,19 +67,31 @@ export default function ConnectButton() {
 
   const fetchBalance = async () => {
     if (typeof window !== 'undefined') {
-      const balanceInSatoshis = await getWalletBalance()
-      console.log(window.localStorage.walletAddress)
-      console.log(balanceInSatoshis)
-      setWalletBalance(formatBalance(Number(balanceInSatoshis)))
+      setIsLoading(true)
+      try {
+        const balanceInSatoshis = await getWalletBalance()
+        console.log(window.localStorage.walletAddress)
+        console.log(balanceInSatoshis)
+        setWalletBalance(formatBalance(Number(balanceInSatoshis)))
+      } catch (error) {
+        console.error('Error fetching balance:', error)
+      } finally {
+        setIsLoading(false)
+      }
     }
   }
 
   const handleClick = async () => {
-    if (!isWalletInitialized) {
-      await setupWallet()
-    } else {
-      await fetchBalance() // Refresh balance before showing modal
-      setIsModalOpen(true)
+    setIsLoading(true)
+    try {
+      if (!isWalletInitialized) {
+        await setupWallet()
+      } else {
+        await fetchBalance() // Refresh balance before showing modal
+        setIsModalOpen(true)
+      }
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -202,12 +214,13 @@ export default function ConnectButton() {
         return
       }
 
+      setIsLoading(true)
       const txid = await sendBSV(Number(sendAmount), sendAddress)
       if (txid) {
         setSendAmount('')
         setSendAddress('')
         setCurrentView('main')
-        await fetchBalance() // Refresh balance after sending
+        await fetchBalance()
         toast({
           description: "Transaction sent successfully",
           duration: 1000
@@ -217,9 +230,11 @@ export default function ConnectButton() {
       console.error('Send error:', error)
       toast({
         variant: "destructive",
-        description: "Failed to send transaction",
+        description: error?.toString() || "Failed to send transaction",
         duration: 1500
       })
+    } finally {
+      setIsLoading(false)
     }
   }
 

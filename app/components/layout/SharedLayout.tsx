@@ -5,7 +5,6 @@ import React from "react"
 import { Home } from "lucide-react"
 import ConnectButton from "@/app/components/layout/ConnectButton"
 import Link from 'next/link';
-import { motion, AnimatePresence } from "framer-motion";
 import { ModeToggle } from "@/components/ui/mode-toggle"
 import { Button } from "@/components/ui/button"
 
