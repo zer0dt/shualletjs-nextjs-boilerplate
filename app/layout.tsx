@@ -30,12 +30,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <Script src="/scripts/bsv.browser.min.js" strategy="beforeInteractive" />
-        <Script src="/scripts/message.js" strategy="beforeInteractive" />
-        <Script src="/scripts/idb.js" strategy="beforeInteractive" />
-        <Script src="/scripts/SHUAllet_plugin.js" strategy="beforeInteractive" />
-      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

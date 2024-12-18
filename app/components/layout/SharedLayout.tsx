@@ -14,10 +14,12 @@ const SharedLayout = ({ children }: { children: React.ReactNode }) => {
     <div className="flex flex-col min-h-screen max-w-6xl mx-auto">
       <header className="flex items-center justify-between p-4 border-b bg-background">
         <Link href="/" legacyBehavior passHref>
-          <a className="text-2xl font-bold text-primary yeezy-font">shuawalletjs</a> 
+          <a className="text-2xl font-bold text-primary yeezy-font">shualletjs</a> 
         </Link>
-        <nav className="flex items-center space-x-4 lg:space-x-0">
-          <ConnectButton />
+        <nav className="flex items-center space-x-4 lg:space-x-6">
+          <div>
+            <ConnectButton />
+          </div>
           <ModeToggle />
           <button
             className="lg:hidden p-2"
@@ -40,7 +42,7 @@ const SharedLayout = ({ children }: { children: React.ReactNode }) => {
         </aside>
         {/* Mobile Menu */}
         {menuOpen && (
-          <div className="absolute top-0 left-0 w-full h-screen bg-background z-50 flex flex-col items-center space-y-4 p-4 lg:hidden">
+          <div className="fixed top-[73px] left-0 w-full h-[calc(100vh-73px)] bg-background z-50 flex flex-col items-center space-y-4 p-4 lg:hidden">
             <nav className="space-y-2">
               <Link href="/" passHref>
                 <Button

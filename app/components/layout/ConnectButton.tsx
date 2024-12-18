@@ -14,13 +14,29 @@ import { Label } from "@/components/ui/label"
 
 import { useToast } from "@/hooks/use-toast"
 
+// Add these imports from shuallet
+import { getWalletBalance, newPK, restoreWallet, sendBSV } from '@/lib/shuallet'
+import { createPasskey, getPasskey, isPasskeyAvailable, getPasskeys } from '@/lib/passkeys';
+
 // Add this type for the different sheet views
-type SheetView = 'main' | 'send' | 'backup' | 'disconnect' | 'import'
+type SheetView = 'main' | 'send' | 'backup' | 'disconnect' | 'import' | 'create-wallet'
+
+// Add type for error handling
+type ErrorWithMessage = {
+  toString(): string
+}
+
+// Add type for wallet selection
+type WalletInfo = {
+  id: string;
+  name: string;
+  createdAt: number;
+};
 
 export default function ConnectButton() {
   const [isWalletInitialized, setIsWalletInitialized] = useState(false)
   const [walletAddress, setWalletAddress] = useState('')
-  const [walletBalance, setWalletBalance] = useState<string>('0')
+  const [walletBalance, setWalletBalance] = useState<number>(0)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -29,6 +45,9 @@ export default function ConnectButton() {
   const [sendAddress, setSendAddress] = useState('')
   const [backupFileName, setBackupFileName] = useState('')
   const [currentView, setCurrentView] = useState<SheetView>('main')
+  const [isPasskeySupported, setIsPasskeySupported] = useState(false);
+  const [availableWallets, setAvailableWallets] = useState<WalletInfo[]>([]);
+  const [newWalletName, setNewWalletName] = useState('');
 
   const { toast } = useToast()
 
@@ -63,6 +82,7 @@ export default function ConnectButton() {
       fetchBalance()
     }
     fetchBSVPrice()
+    setIsPasskeySupported(isPasskeyAvailable());
   }, [])
 
   const fetchBalance = async () => {
@@ -70,9 +90,8 @@ export default function ConnectButton() {
       setIsLoading(true)
       try {
         const balanceInSatoshis = await getWalletBalance()
-        console.log(window.localStorage.walletAddress)
         console.log(balanceInSatoshis)
-        setWalletBalance(formatBalance(Number(balanceInSatoshis)))
+        setWalletBalance(balanceInSatoshis)
       } catch (error) {
         console.error('Error fetching balance:', error)
       } finally {
@@ -102,11 +121,8 @@ export default function ConnectButton() {
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
-        const json = JSON.parse(e.target?.result as string)
-        if (json.ordPk && json.payPk) {
-          // Clear UTXO cache before restoring new wallet
-          clearUTXOs()
-          
+        const json = JSON.parse((e.target?.result as string))
+        if (json.ordPk && json.payPk) {       
           restoreWallet(json.ordPk, json.payPk)
           setIsWalletInitialized(true)
           setWalletAddress(window.localStorage.walletAddress)
@@ -148,13 +164,10 @@ export default function ConnectButton() {
     localStorage.removeItem('ownerAddress')
     localStorage.removeItem('ownerPublicKey')
 
-    // Clear UTXO cache
-    clearUTXOs()
-
     // Reset state
     setIsWalletInitialized(false)
     setWalletAddress('')
-    setWalletBalance('0')
+    setWalletBalance(0)
     setIsModalOpen(false)
     setCurrentView('main')
 
@@ -228,9 +241,10 @@ export default function ConnectButton() {
       }
     } catch (error) {
       console.error('Send error:', error)
+      const errorMessage = (error as ErrorWithMessage)?.toString() || "Failed to send transaction"
       toast({
         variant: "destructive",
-        description: error?.toString() || "Failed to send transaction",
+        description: errorMessage,
         duration: 1500
       })
     } finally {
@@ -281,6 +295,181 @@ export default function ConnectButton() {
       setBackupFileName('')
     }
   }
+
+  const handleCreateWallet = async () => {
+    try {
+      if (!newWalletName.trim()) {
+        toast({
+          variant: "destructive",
+          description: "Please enter a wallet name",
+          duration: 1500
+        });
+        return;
+      }
+
+      setIsLoading(true);
+      const paymentPk = newPK();
+      const ownerPK = newPK();
+      
+      if (paymentPk && ownerPK) {
+        if (isPasskeySupported) {
+          await createPasskey({
+            ordPk: ownerPK,
+            payPk: paymentPk,
+            name: newWalletName
+          });
+          
+          await loadAvailableWallets();
+        }
+        
+        restoreWallet(ownerPK, paymentPk);
+        setIsWalletInitialized(true);
+        setWalletAddress(window.localStorage.walletAddress);
+        await fetchBalance();
+        setCurrentView('backup');
+        setBackupFileName(newWalletName);
+        
+        toast({
+          description: "New wallet created successfully. Please backup your wallet now.",
+          duration: 3000
+        });
+      }
+    } catch (error) {
+      console.error('Error creating wallet:', error);
+      toast({
+        variant: "destructive",
+        description: "Failed to create wallet",
+        duration: 1500
+      });
+    } finally {
+      setIsLoading(false);
+      setNewWalletName('');
+    }
+  };
+
+  const handleUnlock = async (credentialId: string) => {
+    try {
+      setIsLoading(true);
+      const walletData = await getPasskey(credentialId);
+      if (walletData) {
+        restoreWallet(walletData.ordPk, walletData.payPk);
+        setIsWalletInitialized(true);
+        setWalletAddress(window.localStorage.walletAddress);
+        await fetchBalance();
+        setIsModalOpen(true);
+        setCurrentView('main');
+      }
+    } catch (error) {
+      console.error('Error unlocking wallet:', error);
+      toast({
+        variant: "destructive",
+        description: "Failed to unlock wallet",
+        duration: 1500
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Add function to load available wallets
+  const loadAvailableWallets = async () => {
+    if (isPasskeySupported) {
+      const wallets = await getPasskeys();
+      setAvailableWallets(wallets);
+    }
+  };
+
+  useEffect(() => {
+    loadAvailableWallets();
+  }, [isPasskeySupported]);
+
+  // Update import view to show wallet selection
+  const renderImportView = () => (
+    <>
+      <SheetHeader>
+        <SheetTitle>Setup Wallet</SheetTitle>
+      </SheetHeader>
+      <div className="space-y-4 mt-4">
+        {isPasskeySupported && availableWallets.length > 0 && (
+          <div className="space-y-4">
+            <p>Select an existing wallet:</p>
+            <div className="space-y-2">
+              {availableWallets.map((wallet) => (
+                <Button
+                  key={wallet.id}
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => handleUnlock(wallet.id)}
+                >
+                  {wallet.name}
+                  <span className="ml-auto text-xs text-gray-500">
+                    {new Date(wallet.createdAt).toLocaleDateString()}
+                  </span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex space-x-2">
+          <Button 
+            className="flex-1" 
+            onClick={() => setCurrentView('create-wallet')}
+          >
+            Create New Wallet
+          </Button>
+          <Button
+            className="flex-1"
+            variant="outline"
+            onClick={() => {
+              fileInputRef.current?.click();
+              setIsModalOpen(false);
+            }}
+          >
+            Import from Backup
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+
+  // Add new view for wallet creation
+  const renderCreateWalletView = () => (
+    <>
+      <SheetHeader>
+        <SheetTitle>Create New Wallet</SheetTitle>
+      </SheetHeader>
+      <div className="space-y-4 mt-4">
+        <div className="space-y-2">
+          <Label htmlFor="walletName">Wallet Name</Label>
+          <Input
+            id="walletName"
+            value={newWalletName}
+            onChange={(e) => setNewWalletName(e.target.value)}
+            placeholder="Enter wallet name"
+          />
+        </div>
+        <div className="flex justify-end space-x-2">
+          <Button 
+            variant="outline" 
+            onClick={() => setCurrentView('import')}
+          >
+            Back
+          </Button>
+          <Button 
+            onClick={handleCreateWallet}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              'Create Wallet'
+            )}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
 
   // Render different content based on current view
   const renderSheetContent = () => {
@@ -383,43 +572,11 @@ export default function ConnectButton() {
           </>
         )
 
+      case 'create-wallet':
+        return renderCreateWalletView();
+
       case 'import':
-        return (
-          <>
-            <SheetHeader>
-              <SheetTitle>Setup Wallet</SheetTitle>
-            </SheetHeader>
-            <div className="space-y-4 mt-4">
-              <p>Would you like to import an existing wallet or create a new one?</p>
-              <div className="flex justify-end space-x-2">
-                <Button variant="outline" onClick={() => {
-                  fileInputRef.current?.click()
-                  setIsModalOpen(false)
-                }}>
-                  Import Existing
-                </Button>
-                <Button onClick={async () => {
-                  const paymentPk = newPK()
-                  const ownerPK = newPK()
-                  if (paymentPk && ownerPK) {
-                    clearUTXOs()
-                    restoreWallet(ownerPK, paymentPk, true)
-                    setIsWalletInitialized(true)
-                    setWalletAddress(window.localStorage.walletAddress)
-                    await fetchBalance()
-                    setCurrentView('backup')
-                    toast({
-                      description: "New wallet created. Please backup your wallet.",
-                      duration: 1500
-                    })
-                  }
-                }}>
-                  Create New
-                </Button>
-              </div>
-            </div>
-          </>
-        )
+        return renderImportView();
 
       default:
         return (
@@ -427,18 +584,18 @@ export default function ConnectButton() {
             <SheetHeader>
               <SheetTitle>Wallet</SheetTitle>
             </SheetHeader>
-            <div className="flex flex-col items-center space-y-4 p-4 mt-4">
-              <QRCodeSVG value={walletAddress} size={200} />
-              <div className="text-center space-y-2">
-                <p 
+            <div className="flex flex-col items-center space-y-4 p-4">
+            <p 
                   className="font-mono text-sm break-all cursor-pointer hover:opacity-80"
                   onClick={() => copyToClipboard(walletAddress)}
                   title="Click to copy address"
                 >
                   {walletAddress}
                 </p>
+              <QRCodeSVG value={walletAddress} size={200} />
+              <div className="text-center space-y-2">
                 <p className="text-lg font-semibold">
-                  {formatBalance(walletBalance)} sats - ${calculateUSDValue(Number(walletBalance.replace(/,/g, '')))}
+                  {formatBalance(walletBalance)} sats - ${calculateUSDValue(walletBalance)}
                 </p>
               </div>
               <div className="flex space-x-2 mt-4">
@@ -482,7 +639,7 @@ export default function ConnectButton() {
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : walletAddress ? (
           <span className="text-xs">
-            {`${walletBalance} sats`}
+            {`${formatBalance(walletBalance)} sats`}
           </span>
         ) : (
           'Wallet'
