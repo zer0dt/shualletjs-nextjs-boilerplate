@@ -1,7 +1,7 @@
 'use client'
 import React, { useEffect, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Loader2, LogOut, Download, Send } from "lucide-react"
+import { Loader2, LogOut, Download, Send, Trash2 } from "lucide-react"
 import {
   Sheet,
   SheetContent,
@@ -11,15 +11,23 @@ import {
 import {QRCodeSVG} from 'qrcode.react';
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 
 import { useToast } from "@/hooks/use-toast"
 
 // Add these imports from shuallet
 import { getWalletBalance, newPK, restoreWallet, sendBSV } from '@/lib/shuallet'
-import { createPasskey, getPasskey, isPasskeyAvailable, getPasskeys } from '@/lib/passkeys';
+import { createPasskey, getPasskey, isPasskeyAvailable, getPasskeys, removePasskey } from '@/lib/passkeys';
 
 // Add this type for the different sheet views
-type SheetView = 'main' | 'send' | 'backup' | 'disconnect' | 'import' | 'create-wallet'
+type SheetView = 'main' | 'send' | 'backup' | 'disconnect' | 'import' | 'create-wallet' | 'import-passkey';
 
 // Add type for error handling
 type ErrorWithMessage = {
@@ -48,6 +56,8 @@ export default function ConnectButton() {
   const [isPasskeySupported, setIsPasskeySupported] = useState(false);
   const [availableWallets, setAvailableWallets] = useState<WalletInfo[]>([]);
   const [newWalletName, setNewWalletName] = useState('');
+  const [passkeyToDelete, setPasskeyToDelete] = useState<string | null>(null);
+  const [importedWalletData, setImportedWalletData] = useState<{ ordPk: string; payPk: string } | null>(null);
 
   const { toast } = useToast()
 
@@ -122,32 +132,40 @@ export default function ConnectButton() {
     reader.onload = (e) => {
       try {
         const json = JSON.parse((e.target?.result as string))
-        if (json.ordPk && json.payPk) {       
-          restoreWallet(json.ordPk, json.payPk)
-          setIsWalletInitialized(true)
-          setWalletAddress(window.localStorage.walletAddress)
-          fetchBalance()
-          setIsModalOpen(true)
-          setCurrentView('main')
-          toast({
-            description: "Wallet imported successfully",
-            duration: 1500
-          })
+        if (json.ordPk && json.payPk) {
+          if (isPasskeySupported) {
+            // Store the wallet data temporarily
+            setImportedWalletData(json);
+            setIsModalOpen(true);
+            setCurrentView('import-passkey');
+          } else {
+            // Regular import without passkey
+            restoreWallet(json.ordPk, json.payPk);
+            setIsWalletInitialized(true);
+            setWalletAddress(window.localStorage.walletAddress);
+            fetchBalance();
+            setIsModalOpen(true);
+            setCurrentView('main');
+            toast({
+              description: "Wallet imported successfully",
+              duration: 1500
+            });
+          }
         } else {
-          throw new Error('Invalid wallet file format')
+          throw new Error('Invalid wallet file format');
         }
       } catch (e) {
-        console.error(e)
+        console.error(e);
         toast({
           variant: "destructive",
           description: "Error importing wallet: Invalid format",
           duration: 1500
-        })
+        });
       }
     }
-    reader.readAsText(file)
-    event.target.value = ''
-  }
+    reader.readAsText(file);
+    event.target.value = '';
+  };
 
   const setupWallet = async () => {
     if (!window.localStorage.walletKey) {
@@ -383,7 +401,37 @@ export default function ConnectButton() {
     loadAvailableWallets();
   }, [isPasskeySupported]);
 
-  // Update import view to show wallet selection
+  // Add this function inside the ConnectButton component
+  const handleDeletePasskey = async (id: string) => {
+    setPasskeyToDelete(id);
+  };
+
+  const confirmDeletePasskey = async () => {
+    if (!passkeyToDelete) return;
+    
+    try {
+      setIsLoading(true);
+      const success = removePasskey(passkeyToDelete);
+      if (success) {
+        await loadAvailableWallets();
+        toast({
+          description: "Passkey removed successfully",
+          duration: 1500
+        });
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        description: "Failed to remove passkey",
+        duration: 1500
+      });
+    } finally {
+      setIsLoading(false);
+      setPasskeyToDelete(null);
+    }
+  };
+
+  // Update the renderImportView function to include delete buttons
   const renderImportView = () => (
     <>
       <SheetHeader>
@@ -391,27 +439,33 @@ export default function ConnectButton() {
       </SheetHeader>
       <div className="space-y-4 mt-4">
         {isPasskeySupported && availableWallets.length > 0 && (
-          <div className="space-y-4">
-            <p>Select an existing wallet:</p>
-            <div className="space-y-2">
-              {availableWallets.map((wallet) => (
+          <div className="space-y-2">
+            {availableWallets.map((wallet) => (
+              <div key={wallet.id} className="flex items-center space-x-2">
                 <Button
-                  key={wallet.id}
                   variant="outline"
-                  className="w-full justify-start"
+                  className="w-full justify-between"
                   onClick={() => handleUnlock(wallet.id)}
                 >
-                  {wallet.name}
-                  <span className="ml-auto text-xs text-gray-500">
+                  <span className="font-medium">{wallet.name}</span>
+                  <span className="text-xs text-muted-foreground">
                     {new Date(wallet.createdAt).toLocaleDateString()}
                   </span>
                 </Button>
-              ))}
-            </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => handleDeletePasskey(wallet.id)}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
           </div>
         )}
 
-        <div className="flex space-x-2">
+        <div className="flex space-x-2 pt-2">
           <Button 
             className="flex-1" 
             onClick={() => setCurrentView('create-wallet')}
@@ -465,6 +519,92 @@ export default function ConnectButton() {
             ) : (
               'Create Wallet'
             )}
+          </Button>
+        </div>
+      </div>
+    </>
+  );
+
+  // Add new function to handle the import with passkey
+  const handleImportWithPasskey = async (shouldCreatePasskey: boolean) => {
+    try {
+      if (!importedWalletData) return;
+
+      // Restore wallet first
+      restoreWallet(importedWalletData.ordPk, importedWalletData.payPk);
+      setIsWalletInitialized(true);
+      setWalletAddress(window.localStorage.walletAddress);
+
+      if (shouldCreatePasskey) {
+        if (!newWalletName.trim()) {
+          toast({
+            variant: "destructive",
+            description: "Please enter a wallet name",
+            duration: 1500
+          });
+          return;
+        }
+
+        await createPasskey({
+          ordPk: importedWalletData.ordPk,
+          payPk: importedWalletData.payPk,
+          name: newWalletName
+        });
+        await loadAvailableWallets();
+      }
+
+      await fetchBalance();
+      setIsModalOpen(true);
+      setCurrentView('main');
+      
+      toast({
+        description: "Wallet imported successfully",
+        duration: 1500
+      });
+    } catch (error) {
+      console.error('Error importing wallet:', error);
+      toast({
+        variant: "destructive",
+        description: "Failed to import wallet",
+        duration: 1500
+      });
+    } finally {
+      setImportedWalletData(null);
+      setNewWalletName('');
+    }
+  };
+
+  // Add new view for passkey import choice
+  const renderImportPasskeyView = () => (
+    <>
+      <SheetHeader>
+        <SheetTitle>Save as Passkey?</SheetTitle>
+      </SheetHeader>
+      <div className="space-y-4 mt-4">
+        <p>Would you like to save this wallet as a passkey? This will allow you to easily access it using your device's authentication.</p>
+        
+        <div className="space-y-2">
+          <Label htmlFor="walletName">Wallet Name</Label>
+          <Input
+            id="walletName"
+            value={newWalletName}
+            onChange={(e) => setNewWalletName(e.target.value)}
+            placeholder="Enter wallet name"
+          />
+        </div>
+
+        <div className="flex justify-end space-x-2">
+          <Button 
+            variant="outline" 
+            onClick={() => handleImportWithPasskey(false)}
+          >
+            Skip
+          </Button>
+          <Button 
+            onClick={() => handleImportWithPasskey(true)}
+            disabled={!newWalletName.trim()}
+          >
+            Save as Passkey
           </Button>
         </div>
       </div>
@@ -578,6 +718,9 @@ export default function ConnectButton() {
       case 'import':
         return renderImportView();
 
+      case 'import-passkey':
+        return renderImportPasskeyView();
+
       default:
         return (
           <>
@@ -651,6 +794,25 @@ export default function ConnectButton() {
           {renderSheetContent()}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={!!passkeyToDelete} onOpenChange={() => setPasskeyToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Passkey</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this passkey? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPasskeyToDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeletePasskey} disabled={isLoading}>
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
